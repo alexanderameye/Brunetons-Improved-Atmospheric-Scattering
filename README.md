@@ -8,7 +8,7 @@ How to use:
 - Add a script compopnent to the main camera of your project and assign the BrunetonCameraScript to it
 - Assign the Precomputation shader as the compute shader for the BrunetonCameraScript
 
-To use the lookups for lighting the scene: 
+To use the lookups to light the scene: 
 - Merge "Lighting.hlsl.txt" with "Lighweight RP\ShaderLibrary\Lighting.hlsl"
 - Merge "LitForwardPass.hlsl.txt" with "Lighweight RP\Shaders\LitForwardPass.hlsl"
 
