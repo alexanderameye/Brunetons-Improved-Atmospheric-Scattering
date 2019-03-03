@@ -12,6 +12,15 @@ To use the lookups to light the scene:
 - Merge "Lighting.hlsl.txt" with "Lighweight RP\ShaderLibrary\Lighting.hlsl"
 - Merge "LitForwardPass.hlsl.txt" with "Lighweight RP\Shaders\LitForwardPass.hlsl"
 
+To tweak the Sky settings edit the BrunetonSkyboxMaterial properties:
+- Mie Scattering
+- Rayleigh Scattering
+- Ozone Density
+- Phase
+- Fog
+- Sun Size
+- Sun Edge
+
 ![AtmosphericScatter0](https://i.imgur.com/iLEAWBH.jpg)
 
 
