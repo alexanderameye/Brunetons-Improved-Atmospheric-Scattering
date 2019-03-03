@@ -13,13 +13,13 @@ To use the lookups to light the scene:
 - Merge "LitForwardPass.hlsl.txt" with "Lighweight RP\Shaders\LitForwardPass.hlsl"
 
 To tweak the Sky settings edit the BrunetonSkyboxMaterial properties:
-- Mie Scattering
-- Rayleigh Scattering
+- Mie Scattering (Scattering caused by particles with size comparable to the wavelengths of visible light)
+- Rayleigh Scattering (Scattering caused by particles with sizemuch smaller than the wavelengths of visible light)
 - Ozone Density
-- Phase
-- Fog
-- Sun Size
-- Sun Edge
+- Phase (The Henyey-Greenstein phase function term)
+- Fog (Amount of fog)
+- Sun Size (Size of the sun)
+- Sun Edge (Size of the edge of the sun)
 
 ![AtmosphericScatter0](https://i.imgur.com/iLEAWBH.jpg)
 
