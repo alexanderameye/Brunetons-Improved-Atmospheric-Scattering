@@ -145,13 +145,13 @@ static const LuminousPower lm = 1.0;
  * as well as some derived units (kilometer km, kilocandela kcd, degree deg):
  */
 
-static const float PI = 3.14159265358979323846;
+static const float B_PI = 3.14159265358979323846;
 
 static const Length km = 1000.0 * m;
 static const Area m2 = m * m;
 static const Volume m3 = m * m * m;
-static const Angle pi = PI * rad;
-static const Angle deg = pi / 180.0;
+static const Angle pi = B_PI * rad;
+static const Angle deg = B_PI / 180.0;
 static const Irradiance watt_per_square_meter = watt / m2;
 static const Radiance watt_per_square_meter_per_sr = watt / (m2 * sr);
 static const SpectralIrradiance watt_per_square_meter_per_nm = watt / (m2 * nm);

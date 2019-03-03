@@ -175,6 +175,31 @@ namespace BrunetonsImprovedAtmosphere
         /// </summary>
         public bool HalfPrecision { get; set; }
 
+        /// <summary>
+        /// Sky Exposure
+        /// </summary>
+        public double Exposure { get; set; }
+
+        /// <summary>
+        /// Perform white balance
+        /// </summary>
+        public bool DoWhiteBalance { get; set; }
+
+        /// <summary>
+        /// Scalar to tone control the amount of fog
+        /// </summary>
+        public double FogAmount { get; set; }
+
+        /// <summary>
+        /// Size of the sun
+        /// </summary>
+        public double SunSize { get; set; }
+
+        /// <summary>
+        /// Edge size of the sun
+        /// </summary>
+        public double SunEdge { get; set; }
+
         public RenderTexture TransmittanceTexture { get; private set; }
 
         public RenderTexture ScatteringTexture { get; private set; }
@@ -249,6 +274,176 @@ namespace BrunetonsImprovedAtmosphere
             mat.SetVector("mie_scattering", mieScattering);
         }
 
+        /// <summary>
+        /// Bind to a pixel shader for rendering.
+        /// </summary>
+        public void BindToPipeline(CommandBuffer cmd, double[] lambdas, double[] luminance_from_radiance)
+        {
+            if (lambdas == null)
+                lambdas = new double[] { kLambdaR, kLambdaG, kLambdaB };
+
+            if (luminance_from_radiance == null)
+                luminance_from_radiance = new double[] { 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0 };
+
+            float angularRadius = (float)SunSize * (float)SunAngularRadius;
+            cmd.EnableShaderKeyword("_ADDITIONAL_LIGHTS");
+            cmd.SetGlobalTexture("transmittance_texture", TransmittanceTexture);
+            cmd.SetGlobalTexture("scattering_texture", ScatteringTexture);
+            cmd.SetGlobalTexture("irradiance_texture", IrradianceTexture);
+            cmd.SetGlobalTexture("single_mie_scattering_texture", Texture2D.blackTexture);
+
+            cmd.SetGlobalInt("TRANSMITTANCE_TEXTURE_WIDTH", CONSTANTS.TRANSMITTANCE_WIDTH);
+            cmd.SetGlobalInt("TRANSMITTANCE_TEXTURE_HEIGHT", CONSTANTS.TRANSMITTANCE_HEIGHT);
+            cmd.SetGlobalInt("SCATTERING_TEXTURE_R_SIZE", CONSTANTS.SCATTERING_R);
+            cmd.SetGlobalInt("SCATTERING_TEXTURE_MU_SIZE", CONSTANTS.SCATTERING_MU);
+            cmd.SetGlobalInt("SCATTERING_TEXTURE_MU_S_SIZE", CONSTANTS.SCATTERING_MU_S);
+            cmd.SetGlobalInt("SCATTERING_TEXTURE_NU_SIZE", CONSTANTS.SCATTERING_NU);
+            cmd.SetGlobalInt("SCATTERING_TEXTURE_WIDTH", CONSTANTS.SCATTERING_WIDTH);
+            cmd.SetGlobalInt("SCATTERING_TEXTURE_HEIGHT", CONSTANTS.SCATTERING_HEIGHT);
+            cmd.SetGlobalInt("SCATTERING_TEXTURE_DEPTH", CONSTANTS.SCATTERING_DEPTH);
+            cmd.SetGlobalInt("IRRADIANCE_TEXTURE_WIDTH", CONSTANTS.IRRADIANCE_WIDTH);
+            cmd.SetGlobalInt("IRRADIANCE_TEXTURE_HEIGHT", CONSTANTS.IRRADIANCE_HEIGHT);
+
+            Vector3 skySpectralRadianceToLuminance, sunSpectralRadianceToLuminance;
+            SkySunRadianceToLuminance(out skySpectralRadianceToLuminance, out sunSpectralRadianceToLuminance);
+
+            cmd.SetGlobalVector("SKY_SPECTRAL_RADIANCE_TO_LUMINANCE", skySpectralRadianceToLuminance);
+            cmd.SetGlobalVector("SUN_SPECTRAL_RADIANCE_TO_LUMINANCE", sunSpectralRadianceToLuminance);
+
+            Vector3 solarIrradiance = ToVector(Wavelengths, SolarIrradiance, lambdas, 1.0);
+            cmd.SetGlobalVector("solar_irradiance", solarIrradiance);
+
+            Vector3 rayleighScattering = ToVector(Wavelengths, RayleighScattering, lambdas, LengthUnitInMeters);
+            cmd.SetGlobalVector("rayleigh_scattering", rayleighScattering);
+
+            Vector3 mieScattering = ToVector(Wavelengths, MieScattering, lambdas, LengthUnitInMeters);
+            Vector3 mieExtinction = ToVector(Wavelengths, MieExtinction, lambdas, LengthUnitInMeters);
+
+            BindDensityLayer(cmd, MieDensity);
+            cmd.SetGlobalVector("mie_scattering", mieScattering);
+            cmd.SetGlobalVector("mie_extinction", mieExtinction);
+
+            Vector3 absorptionExtinction = ToVector(Wavelengths, AbsorptionExtinction, lambdas, LengthUnitInMeters);
+            BindDensityLayer(cmd, AbsorptionDensity[0]);
+            BindDensityLayer(cmd, AbsorptionDensity[1]);
+            cmd.SetGlobalVector("absorption_extinction", absorptionExtinction);
+
+            Vector3 groundAlbedo = ToVector(Wavelengths, GroundAlbedo, lambdas, 1.0);
+            cmd.SetGlobalVector("ground_albedo", groundAlbedo);
+
+            cmd.SetGlobalMatrix("luminanceFromRadiance", Matrix4x4.identity);// ToMatrix(luminance_from_radiance));
+            cmd.SetGlobalFloat("sun_angular_radius", angularRadius);
+            cmd.SetGlobalFloat("bottom_radius", (float)(BottomRadius / LengthUnitInMeters));
+            cmd.SetGlobalFloat("top_radius", (float)(TopRadius / LengthUnitInMeters));
+            cmd.SetGlobalFloat("mie_phase_function_g", (float)MiePhaseFunctionG);
+            cmd.SetGlobalFloat("mu_s_min", (float)Math.Cos(MaxSunZenithAngle));
+
+            cmd.SetGlobalFloat("exposure", (float)Exposure);
+            cmd.SetGlobalVector("earth_center", new Vector3(0.0f, -(float)BottomRadius / (float)LengthUnitInMeters, 0.0f));
+            cmd.SetGlobalVector("sun_size", new Vector2((float)Math.Tan(angularRadius), (float)Math.Cos(angularRadius)));
+            cmd.SetGlobalVector("sun_direction", -RenderSettings.sun.transform.forward);
+
+            double white_point_r = 1.0;
+            double white_point_g = 1.0;
+            double white_point_b = 1.0;
+            if (DoWhiteBalance)
+            {
+                ConvertSpectrumToLinearSrgb(out white_point_r, out white_point_g, out white_point_b);
+
+                double white_point = (white_point_r + white_point_g + white_point_b) / 3.0;
+                white_point_r /= white_point;
+                white_point_g /= white_point;
+                white_point_b /= white_point;
+            }
+
+            cmd.SetGlobalVector("white_point", new Vector3((float)white_point_r, (float)white_point_g, (float)white_point_b));
+
+            cmd.SetGlobalFloat("fog_amount", (float)FogAmount);
+            cmd.SetGlobalFloat("sun_edge", (float)SunEdge);
+
+        }
+
+        /// <summary>
+        /// Bind to a compute shader for precomutation of textures.
+        /// </summary>
+        private void BindToCompute(ComputeShader compute, double[] lambdas, double[] luminance_from_radiance)
+        {
+            if (compute == null)
+                return;
+
+            if (lambdas == null)
+                lambdas = new double[] { kLambdaR, kLambdaG, kLambdaB };
+
+            if (luminance_from_radiance == null)
+                luminance_from_radiance = new double[] { 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0 };
+
+            compute.SetInt("TRANSMITTANCE_TEXTURE_WIDTH", CONSTANTS.TRANSMITTANCE_WIDTH);
+            compute.SetInt("TRANSMITTANCE_TEXTURE_HEIGHT", CONSTANTS.TRANSMITTANCE_HEIGHT);
+            compute.SetInt("SCATTERING_TEXTURE_R_SIZE", CONSTANTS.SCATTERING_R);
+            compute.SetInt("SCATTERING_TEXTURE_MU_SIZE", CONSTANTS.SCATTERING_MU);
+            compute.SetInt("SCATTERING_TEXTURE_MU_S_SIZE", CONSTANTS.SCATTERING_MU_S);
+            compute.SetInt("SCATTERING_TEXTURE_NU_SIZE", CONSTANTS.SCATTERING_NU);
+            compute.SetInt("SCATTERING_TEXTURE_WIDTH", CONSTANTS.SCATTERING_WIDTH);
+            compute.SetInt("SCATTERING_TEXTURE_HEIGHT", CONSTANTS.SCATTERING_HEIGHT);
+            compute.SetInt("SCATTERING_TEXTURE_DEPTH", CONSTANTS.SCATTERING_DEPTH);
+            compute.SetInt("IRRADIANCE_TEXTURE_WIDTH", CONSTANTS.IRRADIANCE_WIDTH);
+            compute.SetInt("IRRADIANCE_TEXTURE_HEIGHT", CONSTANTS.IRRADIANCE_HEIGHT);
+
+            Vector3 skySpectralRadianceToLuminance, sunSpectralRadianceToLuminance;
+            SkySunRadianceToLuminance(out skySpectralRadianceToLuminance, out sunSpectralRadianceToLuminance);
+
+            compute.SetVector("SKY_SPECTRAL_RADIANCE_TO_LUMINANCE", skySpectralRadianceToLuminance);
+            compute.SetVector("SUN_SPECTRAL_RADIANCE_TO_LUMINANCE", sunSpectralRadianceToLuminance);
+
+            Vector3 solarIrradiance = ToVector(Wavelengths, SolarIrradiance, lambdas, 1.0);
+            compute.SetVector("solar_irradiance", solarIrradiance);
+
+            Vector3 rayleighScattering = ToVector(Wavelengths, RayleighScattering, lambdas, LengthUnitInMeters);
+            BindDensityLayer(compute, RayleighDensity);
+            compute.SetVector("rayleigh_scattering", rayleighScattering);
+
+            Vector3 mieScattering = ToVector(Wavelengths, MieScattering, lambdas, LengthUnitInMeters);
+            Vector3 mieExtinction = ToVector(Wavelengths, MieExtinction, lambdas, LengthUnitInMeters);
+            BindDensityLayer(compute, MieDensity);
+            compute.SetVector("mie_scattering", mieScattering);
+            compute.SetVector("mie_extinction", mieExtinction);
+
+            Vector3 absorptionExtinction = ToVector(Wavelengths, AbsorptionExtinction, lambdas, LengthUnitInMeters);
+            BindDensityLayer(compute, AbsorptionDensity[0]);
+            BindDensityLayer(compute, AbsorptionDensity[1]);
+            compute.SetVector("absorption_extinction", absorptionExtinction);
+
+            Vector3 groundAlbedo = ToVector(Wavelengths, GroundAlbedo, lambdas, 1.0);
+            compute.SetVector("ground_albedo", groundAlbedo);
+
+            compute.SetFloats("luminanceFromRadiance", ToMatrix(luminance_from_radiance));
+            compute.SetFloat("sun_angular_radius", (float)SunAngularRadius);
+            compute.SetFloat("bottom_radius", (float)(BottomRadius / LengthUnitInMeters));
+            compute.SetFloat("top_radius", (float)(TopRadius / LengthUnitInMeters));
+            compute.SetFloat("mie_phase_function_g", (float)MiePhaseFunctionG);
+            compute.SetFloat("mu_s_min", (float)Math.Cos(MaxSunZenithAngle));
+
+            compute.SetFloat("exposure", (float)Exposure);
+            compute.SetVector("earth_center", new Vector3(0.0f, -(float)BottomRadius / (float)LengthUnitInMeters, 0.0f));
+            compute.SetVector("sun_size", new Vector2((float)Math.Tan(SunAngularRadius), (float)Math.Cos(SunAngularRadius)));
+            compute.SetVector("sun_direction", -RenderSettings.sun.transform.forward);
+
+            double white_point_r = 1.0;
+            double white_point_g = 1.0;
+            double white_point_b = 1.0;
+            if (DoWhiteBalance)
+            {
+                ConvertSpectrumToLinearSrgb(out white_point_r, out white_point_g, out white_point_b);
+
+                double white_point = (white_point_r + white_point_g + white_point_b) / 3.0;
+                white_point_r /= white_point;
+                white_point_g /= white_point;
+                white_point_b /= white_point;
+            }
+
+            compute.SetVector("white_point", new Vector3((float)white_point_r, (float)white_point_g, (float)white_point_b));
+        }
+
         public void Release()
         {
             ReleaseTexture(TransmittanceTexture);
@@ -319,11 +514,11 @@ namespace BrunetonsImprovedAtmosphere
 
             // The actual precomputations depend on whether we want to store precomputed
             // irradiance or illuminance values.
-            if (NumPrecomputedWavelengths <= 3) 
+            if (NumPrecomputedWavelengths <= 3)
             {
                 Precompute(compute, buffer, null, null, false, num_scattering_orders);
-            } 
-            else 
+            }
+            else
             {
                 int num_iterations = (NumPrecomputedWavelengths + 2) / 3;
                 double dlambda = (kLambdaMax - kLambdaMin) / (3.0 * num_iterations);
@@ -387,7 +582,7 @@ namespace BrunetonsImprovedAtmosphere
 
         }
 
-        private double Coeff(double lambda, int component) 
+        private double Coeff(double lambda, int component)
         {
             // Note that we don't include MAX_LUMINOUS_EFFICACY here, to avoid
             // artefacts due to too large values when using half precision on GPU.
@@ -397,69 +592,11 @@ namespace BrunetonsImprovedAtmosphere
             double x = CieColorMatchingFunctionTableValue(lambda, 1);
             double y = CieColorMatchingFunctionTableValue(lambda, 2);
             double z = CieColorMatchingFunctionTableValue(lambda, 3);
-            double sRGB = CONSTANTS.XYZ_TO_SRGB[component * 3 + 0] * x + 
-                          CONSTANTS.XYZ_TO_SRGB[component * 3 + 1] * y + 
+            double sRGB = CONSTANTS.XYZ_TO_SRGB[component * 3 + 0] * x +
+                          CONSTANTS.XYZ_TO_SRGB[component * 3 + 1] * y +
                           CONSTANTS.XYZ_TO_SRGB[component * 3 + 2] * z;
 
             return sRGB;
-        }
-
-        /// <summary>
-        /// Bind to a compute shader for precomutation of textures.
-        /// </summary>
-        private void BindToCompute(ComputeShader compute, double[] lambdas, double[] luminance_from_radiance)
-        {
-            if(lambdas == null)
-                lambdas = new double[] { kLambdaR, kLambdaG, kLambdaB };
-
-            if(luminance_from_radiance == null)
-                luminance_from_radiance = new double[] { 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0 };
-
-            compute.SetInt("TRANSMITTANCE_TEXTURE_WIDTH", CONSTANTS.TRANSMITTANCE_WIDTH);
-            compute.SetInt("TRANSMITTANCE_TEXTURE_HEIGHT", CONSTANTS.TRANSMITTANCE_HEIGHT);
-            compute.SetInt("SCATTERING_TEXTURE_R_SIZE", CONSTANTS.SCATTERING_R);
-            compute.SetInt("SCATTERING_TEXTURE_MU_SIZE", CONSTANTS.SCATTERING_MU);
-            compute.SetInt("SCATTERING_TEXTURE_MU_S_SIZE", CONSTANTS.SCATTERING_MU_S);
-            compute.SetInt("SCATTERING_TEXTURE_NU_SIZE", CONSTANTS.SCATTERING_NU);
-            compute.SetInt("SCATTERING_TEXTURE_WIDTH", CONSTANTS.SCATTERING_WIDTH);
-            compute.SetInt("SCATTERING_TEXTURE_HEIGHT", CONSTANTS.SCATTERING_HEIGHT);
-            compute.SetInt("SCATTERING_TEXTURE_DEPTH", CONSTANTS.SCATTERING_DEPTH);
-            compute.SetInt("IRRADIANCE_TEXTURE_WIDTH", CONSTANTS.IRRADIANCE_WIDTH);
-            compute.SetInt("IRRADIANCE_TEXTURE_HEIGHT", CONSTANTS.IRRADIANCE_HEIGHT);
-
-            Vector3 skySpectralRadianceToLuminance, sunSpectralRadianceToLuminance;
-            SkySunRadianceToLuminance(out skySpectralRadianceToLuminance, out sunSpectralRadianceToLuminance);
-
-            compute.SetVector("SKY_SPECTRAL_RADIANCE_TO_LUMINANCE", skySpectralRadianceToLuminance);
-            compute.SetVector("SUN_SPECTRAL_RADIANCE_TO_LUMINANCE", sunSpectralRadianceToLuminance);
-
-            Vector3 solarIrradiance = ToVector(Wavelengths, SolarIrradiance, lambdas, 1.0);
-            compute.SetVector("solar_irradiance", solarIrradiance);
-
-            Vector3 rayleighScattering = ToVector(Wavelengths, RayleighScattering, lambdas, LengthUnitInMeters);
-            BindDensityLayer(compute, RayleighDensity);
-            compute.SetVector("rayleigh_scattering", rayleighScattering);
-
-            Vector3 mieScattering = ToVector(Wavelengths, MieScattering, lambdas, LengthUnitInMeters);
-            Vector3 mieExtinction = ToVector(Wavelengths, MieExtinction, lambdas, LengthUnitInMeters);
-            BindDensityLayer(compute, MieDensity);
-            compute.SetVector("mie_scattering", mieScattering);
-            compute.SetVector("mie_extinction", mieExtinction);
-
-            Vector3 absorptionExtinction = ToVector(Wavelengths, AbsorptionExtinction, lambdas, LengthUnitInMeters);
-            BindDensityLayer(compute, AbsorptionDensity[0]);
-            BindDensityLayer(compute, AbsorptionDensity[1]);
-            compute.SetVector("absorption_extinction", absorptionExtinction);
-
-            Vector3 groundAlbedo = ToVector(Wavelengths, GroundAlbedo, lambdas, 1.0);
-            compute.SetVector("ground_albedo", groundAlbedo);
-
-            compute.SetFloats("luminanceFromRadiance", ToMatrix(luminance_from_radiance));
-            compute.SetFloat("sun_angular_radius", (float)SunAngularRadius);
-            compute.SetFloat("bottom_radius", (float)(BottomRadius / LengthUnitInMeters));
-            compute.SetFloat("top_radius", (float)(TopRadius / LengthUnitInMeters));
-            compute.SetFloat("mie_phase_function_g", (float)MiePhaseFunctionG);
-            compute.SetFloat("mu_s_min", (float)Math.Cos(MaxSunZenithAngle));
         }
 
         private void BindDensityLayer(ComputeShader compute, DensityProfileLayer layer)
@@ -471,7 +608,16 @@ namespace BrunetonsImprovedAtmosphere
             compute.SetFloat(layer.Name + "_constant_term", (float)layer.ConstantTerm);
         }
 
-        private Vector3 ToVector(IList<double> wavelengths, IList<double> v, IList<double> lambdas, double scale)
+        private void BindDensityLayer(CommandBuffer cmd, DensityProfileLayer layer)
+        {
+            cmd.SetGlobalFloat(layer.Name + "_width", (float)(layer.Width / LengthUnitInMeters));
+            cmd.SetGlobalFloat(layer.Name + "_exp_term", (float)layer.ExpTerm);
+            cmd.SetGlobalFloat(layer.Name + "_exp_scale", (float)(layer.ExpScale * LengthUnitInMeters));
+            cmd.SetGlobalFloat(layer.Name + "_linear_term", (float)(layer.LinearTerm * LengthUnitInMeters));
+            cmd.SetGlobalFloat(layer.Name + "_constant_term", (float)layer.ConstantTerm);
+        }
+
+        public Vector3 ToVector(IList<double> wavelengths, IList<double> v, IList<double> lambdas, double scale)
         {
             double r = Interpolate(wavelengths, v, lambdas[0]) * scale;
             double g = Interpolate(wavelengths, v, lambdas[1]) * scale;
@@ -529,7 +675,7 @@ namespace BrunetonsImprovedAtmosphere
         /// by MAX_LUMINOUS_EFFICACY instead. This is why, in precomputed illuminance
         /// mode, we set SKY_RADIANCE_TO_LUMINANCE to MAX_LUMINOUS_EFFICACY.
         /// </summary>
-        private void SkySunRadianceToLuminance(out Vector3 skySpectralRadianceToLuminance, out Vector3 sunSpectralRadianceToLuminance)
+        public void SkySunRadianceToLuminance(out Vector3 skySpectralRadianceToLuminance, out Vector3 sunSpectralRadianceToLuminance)
         {
             bool precompute_illuminance = NumPrecomputedWavelengths > 3;
             double sky_k_r, sky_k_g, sky_k_b;
@@ -554,7 +700,7 @@ namespace BrunetonsImprovedAtmosphere
         /// Evaluation of 8 Clear Sky Models</a> for their definitions):
         /// The returned constants are in lumen.nm / watt.
         /// </summary>
-        private static void ComputeSpectralRadianceToLuminanceFactors(IList<double> wavelengths, IList<double> solar_irradiance, double lambda_power, out double k_r, out double k_g, out double k_b) 
+        private static void ComputeSpectralRadianceToLuminanceFactors(IList<double> wavelengths, IList<double> solar_irradiance, double lambda_power, out double k_r, out double k_g, out double k_b)
         {
             k_r = 0.0;
             k_g = 0.0;
@@ -564,7 +710,7 @@ namespace BrunetonsImprovedAtmosphere
             double solar_b = Interpolate(wavelengths, solar_irradiance, kLambdaB);
             int dlambda = 1;
 
-            for (int lambda = kLambdaMin; lambda < kLambdaMax; lambda += dlambda) 
+            for (int lambda = kLambdaMin; lambda < kLambdaMax; lambda += dlambda)
             {
                 double x_bar = CieColorMatchingFunctionTableValue(lambda, 1);
                 double y_bar = CieColorMatchingFunctionTableValue(lambda, 2);
@@ -638,7 +784,7 @@ namespace BrunetonsImprovedAtmosphere
             int compute_scattering_density = compute.FindKernel("ComputeScatteringDensity");
             int compute_indirect_irradiance = compute.FindKernel("ComputeIndirectIrradiance");
             int compute_multiple_scattering = compute.FindKernel("ComputeMultipleScattering");
- 
+
             // Compute the transmittance, and store it in transmittance_texture
             compute.SetTexture(compute_transmittance, "transmittanceWrite", buffer.TransmittanceArray[WRITE]);
             compute.SetVector("blend", new Vector4(0, 0, 0, 0));
@@ -670,7 +816,7 @@ namespace BrunetonsImprovedAtmosphere
             compute.SetTexture(compute_single_scattering, "transmittanceRead", buffer.TransmittanceArray[READ]);
             compute.SetVector("blend", new Vector4(0, 0, BLEND, BLEND));
 
-            for (int layer = 0; layer < CONSTANTS.SCATTERING_DEPTH; ++layer) 
+            for (int layer = 0; layer < CONSTANTS.SCATTERING_DEPTH; ++layer)
             {
                 compute.SetInt("layer", layer);
                 compute.Dispatch(compute_single_scattering, CONSTANTS.SCATTERING_WIDTH / NUM_THREADS, CONSTANTS.SCATTERING_HEIGHT / NUM_THREADS, 1);
@@ -679,7 +825,7 @@ namespace BrunetonsImprovedAtmosphere
             Swap(buffer.OptionalSingleMieScatteringArray);
 
             // Compute the 2nd, 3rd and 4th order of scattering, in sequence.
-            for (int scattering_order = 2; scattering_order <= num_scattering_orders; ++scattering_order) 
+            for (int scattering_order = 2; scattering_order <= num_scattering_orders; ++scattering_order)
             {
                 // Compute the scattering density, and store it in
                 // delta_scattering_density_texture.
@@ -692,7 +838,7 @@ namespace BrunetonsImprovedAtmosphere
                 compute.SetInt("scatteringOrder", scattering_order);
                 compute.SetVector("blend", new Vector4(0, 0, 0, 0));
 
-                for (int layer = 0; layer < CONSTANTS.SCATTERING_DEPTH; ++layer) 
+                for (int layer = 0; layer < CONSTANTS.SCATTERING_DEPTH; ++layer)
                 {
                     compute.SetInt("layer", layer);
                     compute.Dispatch(compute_scattering_density, CONSTANTS.SCATTERING_WIDTH / NUM_THREADS, CONSTANTS.SCATTERING_HEIGHT / NUM_THREADS, 1);
@@ -722,7 +868,7 @@ namespace BrunetonsImprovedAtmosphere
                 compute.SetTexture(compute_multiple_scattering, "deltaScatteringDensityRead", buffer.DeltaScatteringDensityTexture);
                 compute.SetVector("blend", new Vector4(0, 1, 0, 0));
 
-                for (int layer = 0; layer < CONSTANTS.SCATTERING_DEPTH; ++layer) 
+                for (int layer = 0; layer < CONSTANTS.SCATTERING_DEPTH; ++layer)
                 {
                     compute.SetInt("layer", layer);
                     compute.Dispatch(compute_multiple_scattering, CONSTANTS.SCATTERING_WIDTH / NUM_THREADS, CONSTANTS.SCATTERING_HEIGHT / NUM_THREADS, 1);

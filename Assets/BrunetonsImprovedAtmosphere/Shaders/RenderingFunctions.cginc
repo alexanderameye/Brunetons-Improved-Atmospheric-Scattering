@@ -85,7 +85,6 @@
   * function:
   */
 
-#ifdef COMBINED_SCATTERING_TEXTURES
 float3 GetExtrapolatedSingleMieScattering(float4 scattering)
 {
 	if (scattering.r == 0.0)
@@ -95,7 +94,6 @@ float3 GetExtrapolatedSingleMieScattering(float4 scattering)
 		(rayleigh_scattering.r / mie_scattering.r) *
 		(mie_scattering / rayleigh_scattering);
 }
-#endif
 
 /*
  * We can then retrieve all the scattering components (Rayleigh + multiple
@@ -122,14 +120,9 @@ IrradianceSpectrum GetCombinedScattering(
 	float3 uvw0 = float3((tex_x + uvwz.y) / Number(SCATTERING_TEXTURE_NU_SIZE), uvwz.z, uvwz.w);
 	float3 uvw1 = float3((tex_x + 1.0 + uvwz.y) / Number(SCATTERING_TEXTURE_NU_SIZE), uvwz.z, uvwz.w);
 
-#ifdef COMBINED_SCATTERING_TEXTURES
 	float4 combined_scattering = TEX3D(scattering_texture, uvw0) * (1.0 - lerp) + TEX3D(scattering_texture, uvw1) * lerp;
 	IrradianceSpectrum scattering = combined_scattering;
 	single_mie_scattering = GetExtrapolatedSingleMieScattering(combined_scattering);
-#else
-	IrradianceSpectrum scattering = TEX3D(scattering_texture, uvw0).xyz * (1.0 - lerp) + TEX3D(scattering_texture, uvw1).xyz * lerp;
-	single_mie_scattering = TEX3D(single_mie_scattering_texture, uvw0).xyz * (1.0 - lerp) + TEX3D(single_mie_scattering_texture, uvw1).xyz * lerp;
-#endif
 
 	return scattering;
 }
@@ -307,10 +300,8 @@ RadianceSpectrum GetSkyRadianceToPoint(
 	scattering = scattering - shadow_transmittance * scattering_p;
 	single_mie_scattering = single_mie_scattering - shadow_transmittance * single_mie_scattering_p;
 
-#ifdef COMBINED_SCATTERING_TEXTURES
 	single_mie_scattering = GetExtrapolatedSingleMieScattering(
 		float4(scattering, single_mie_scattering.r));
-#endif
 
 	// Hack to avoid rendering artifacts when the sun is below the horizon.
 	single_mie_scattering = single_mie_scattering *

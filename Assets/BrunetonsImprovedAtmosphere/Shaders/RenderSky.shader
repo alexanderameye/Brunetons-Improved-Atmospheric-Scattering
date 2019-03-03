@@ -192,7 +192,7 @@
 #ifdef RADIANCE_API_ENABLED
 			RadianceSpectrum GetSolarRadiance() 
 			{
-				return solar_irradiance / (PI * sun_angular_radius * sun_angular_radius);
+				return solar_irradiance / (B_PI * sun_angular_radius * sun_angular_radius);
 			}
 
 			RadianceSpectrum GetSkyRadiance(
@@ -224,7 +224,7 @@
 			Luminance3 GetSolarRadiance()
 			{
 				return solar_irradiance /
-					(PI * sun_angular_radius * sun_angular_radius) *
+					(B_PI * sun_angular_radius * sun_angular_radius) *
 					SUN_SPECTRAL_RADIANCE_TO_LUMINANCE;
 			}
 
@@ -315,7 +315,7 @@
 					float3 sky_irradiance;
 					float3 sun_irradiance = GetSunAndSkyIrradiance(_point - earth_center, normal, sun_direction, sky_irradiance);
 
-					sphere_radiance = kSphereAlbedo * (1.0 / PI) * (sun_irradiance + sky_irradiance);
+					sphere_radiance = kSphereAlbedo * (1.0 / B_PI) * (sun_irradiance + sky_irradiance);
 
 					/*
 					Finally, we take into account the aerial perspective between the camera and
@@ -360,7 +360,7 @@
 					float sunVis = GetSunVisibility(_point, sun_direction);
 					float skyVis = GetSkyVisibility(_point);
 
-					ground_radiance = kGroundAlbedo * (1.0 / PI) * (sun_irradiance * sunVis + sky_irradiance * skyVis);
+					ground_radiance = kGroundAlbedo * (1.0 / B_PI) * (sun_irradiance * sunVis + sky_irradiance * skyVis);
 
 					float shadow_length = max(0.0, min(shadow_out, distance_to_intersection) - shadow_in) * lightshaft_fadein_hack;
 

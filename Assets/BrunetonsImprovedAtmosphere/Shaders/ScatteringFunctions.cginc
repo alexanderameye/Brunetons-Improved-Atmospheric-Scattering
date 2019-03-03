@@ -189,13 +189,13 @@ void ComputeSingleScattering(
 
 InverseSolidAngle RayleighPhaseFunction(Number nu) 
 {
-  InverseSolidAngle k = 3.0 / (16.0 * PI * sr);
+  InverseSolidAngle k = 3.0 / (16.0 * B_PI * sr);
   return k * (1.0 + nu * nu);
 }
 
 InverseSolidAngle MiePhaseFunction(Number g, Number nu) 
 {
-  InverseSolidAngle k = 3.0 / (8.0 * PI * sr) * (1.0 - g * g) / (2.0 + g * g);
+  InverseSolidAngle k = 3.0 / (8.0 * B_PI * sr) * (1.0 - g * g) / (2.0 + g * g);
   return k * (1.0 + nu * nu) / pow(abs(1.0 + g * g - 2.0 * g * nu), 1.5);
 }
 
@@ -627,7 +627,7 @@ RadianceDensitySpectrum ComputeScatteringDensity(
       // the irradiance received on the ground after n-2 bounces.
       float3 ground_normal = normalize(zenith_direction * r + omega_i * distance_to_ground);
       IrradianceSpectrum ground_irradiance = GetIrradiance(irradiance_texture, bottom_radius, dot(ground_normal, omega_s));
-      incident_radiance += transmittance_to_ground * ground_albedo * (1.0 / (PI * sr)) * ground_irradiance;
+      incident_radiance += transmittance_to_ground * ground_albedo * (1.0 / (B_PI * sr)) * ground_irradiance;
 
       // The radiance finally scattered from direction omega_i towards direction
       // -omega is the product of the incident radiance, the scattering
