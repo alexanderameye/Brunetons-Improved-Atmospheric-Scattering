@@ -21,7 +21,7 @@ To tweak the Sky settings edit the BrunetonSkyboxMaterial properties:
 - Sun Size (Size of the sun)
 - Sun Edge (Size of the edge of the sun)
 
-![AtmosphericScatter0](https://i.imgur.com/iLEAWBH.jpg)
+![AtmosphericScatter0](https://i.imgur.com/HAKZwFg.jpg)
 
 
 ![AtmosphericScatter1](https://i.imgur.com/F5l7uMs.jpg)
